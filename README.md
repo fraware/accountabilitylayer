@@ -54,8 +54,38 @@ The project consists of two main components:
 
 ## Repository Structure
 
-```plaintext
-accountability-layer/ ├── backend/ │ ├── src/ │ │ ├── controllers/ # API endpoint handlers (logs, authentication) │ │ ├── models/ # Data models and Mongoose schemas │ │ ├── routes/ # API route definitions (versioned under /api/v1) │ │ ├── services/ # Business logic (logging, anomaly detection, notifications) │ │ ├── middleware/ # JWT authentication, role-based authorization, error handling, API usage logging │ │ └── app.js # Entry point for the backend API server │ ├── tests/ # Unit, integration, and security tests for backend endpoints │ ├── Dockerfile # Containerization configuration for the backend service │ └── package.json # Backend dependencies and scripts ├── frontend/ │ ├── public/ │ │ └── index.html # HTML entry point for the React application │ ├── src/ │ │ ├── components/ # UI components (Login, LogViewer, LogFilter, LogDetailModal, Notification, UserProfile) │ │ ├── services/ # API configuration (Axios setup, Socket.IO integration) │ │ ├── App.jsx # Main React component │ │ └── index.js # React application entry point │ ├── tests/ # Unit tests and Cypress end-to-end tests for frontend components │ ├── Dockerfile # Containerization configuration for the frontend service │ └── package.json # Frontend dependencies and scripts ├── docs/ │ ├── api-spec.yaml # OpenAPI (Swagger) specification for the backend API │ ├── DEVELOPER_GUIDE.md # Detailed guide for developers and contributors │ └── README.md # Project documentation and setup instructions ├── docker-compose.yml # Multi-container orchestration configuration ├── CONTRIBUTING.md # Contribution guidelines for the project ├── CODE_OF_CONDUCT.md # Code of conduct for contributors └── README.md # This file
+```graphql
+accountability-layer/
+├── backend/
+│   ├── src/
+│   │   ├── controllers/        # API endpoint handlers (logs, authentication)
+│   │   ├── models/             # Data models and Mongoose schemas
+│   │   ├── routes/             # API route definitions (versioned under /api/v1)
+│   │   ├── services/           # Business logic (logging, anomaly detection, notifications)
+│   │   ├── middleware/         # JWT authentication, role-based authorization, error handling, API usage logging
+│   │   └── app.js              # Entry point for the backend API server
+│   ├── tests/                  # Unit, integration, and security tests for backend endpoints
+│   ├── Dockerfile              # Containerization configuration for the backend service
+│   └── package.json            # Backend dependencies and scripts
+├── frontend/
+│   ├── public/
+│   │   └── index.html          # HTML entry point for the React application
+│   ├── src/
+│   │   ├── components/         # UI components (Login, LogViewer, LogFilter, LogDetailModal, Notification, UserProfile)
+│   │   ├── services/           # API configuration (Axios setup, Socket.IO integration)
+│   │   ├── App.jsx             # Main React component
+│   │   └── index.js            # React application entry point
+│   ├── tests/                  # Unit tests and Cypress end-to-end tests for frontend components
+│   ├── Dockerfile              # Containerization configuration for the frontend service
+│   └── package.json            # Frontend dependencies and scripts
+├── docs/
+│   ├── api-spec.yaml           # OpenAPI (Swagger) specification for the backend API
+│   ├── DEVELOPER_GUIDE.md      # Detailed guide for developers and contributors
+│   └── README.md               # Project documentation and setup instructions
+├── docker-compose.yml          # Multi-container orchestration configuration
+├── CONTRIBUTING.md             # Contribution guidelines for the project
+├── CODE_OF_CONDUCT.md          # Code of conduct for contributors
+└── README.md                   # This file
 ```
 
 ## Setup & Installation
