@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js 14
+        uses: actions/setup-node@v2
+        with:
+          node-version: "14"
+      - name: Install backend dependencies
+        run: npm install
+      - name: Run backend tests
+        run: npm test
+
+  frontend-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v2
+      - name: Use Node.js 14
+        uses: actions/setup-node@v2
+        with:
+          node-version: "14"
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Run frontend tests
+        run: npm test -- --watchAll=false
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: "14"
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Install Cypress
+        run: npm install cypress
+      - name: Run Cypress Tests
+        run: npx cypress run
+
+  lint:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run ESLint (backend)
+        run: |
+          cd backend
+          npx eslint .
+      - name: Run ESLint (frontend)
+        run: |
+          cd frontend
+          npx eslint .
