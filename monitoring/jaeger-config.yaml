@@ -1,0 +1,90 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+data:
+  jaeger.yaml: |
+    sampling:
+      default_strategy:
+        type: probabilistic
+        param: 0.001
+    storage:
+      type: elasticsearch
+      options:
+        es:
+          server_urls: http://elasticsearch:9200
+          username: jaeger
+          password: jaeger
+    ingester:
+      kafka:
+        topic: jaeger-spans
+        brokers: kafka:9092
+        group_id: jaeger-ingester
+    query:
+      base_path: /jaeger
+    agent:
+      http_server:
+        host_port: ":14268"
+      grpc_server:
+        host_port: ":14250"
+      sampling:
+        default_strategy:
+          type: probabilistic
+          param: 0.001
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:latest
+        ports:
+        - containerPort: 16686
+        - containerPort: 14268
+        - containerPort: 14250
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        - name: COLLECTOR_OTLP_HTTP_HOST_PORT
+          value: ":4318"
+        - name: COLLECTOR_OTLP_GRPC_HOST_PORT
+          value: ":4317"
+        - name: SPAN_STORAGE_TYPE
+          value: "memory"
+        - name: LOG_LEVEL
+          value: "debug"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - name: http-query
+    port: 16686
+    targetPort: 16686
+  - name: http-collector
+    port: 14268
+    targetPort: 14268
+  - name: grpc-collector
+    port: 14250
+    targetPort: 14250
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317

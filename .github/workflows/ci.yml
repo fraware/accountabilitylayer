@@ -1,74 +1,564 @@
-name: CI
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
+  schedule:
+    # Run performance benchmarks nightly
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  NODE_VERSION: '18'
+  MONGODB_VERSION: '6.0'
+  NATS_VERSION: '2.9'
+  REDIS_VERSION: '7'
 
 jobs:
-  backend-tests:
+  # Security and dependency scanning
+  security:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
     steps:
-      - uses: actions/checkout@v2
-      - name: Use Node.js 14
-        uses: actions/setup-node@v2
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: "14"
-      - name: Install backend dependencies
-        run: npm install
-      - name: Run backend tests
-        run: npm test
-
-  frontend-tests:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v2
-      - name: Use Node.js 14
-        uses: actions/setup-node@v2
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         with:
-          node-version: "14"
-      - name: Install frontend dependencies
-        run: npm install
-      - name: Run frontend tests
-        run: npm test -- --watchAll=false
-
-  e2e-tests:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - uses: actions/checkout@v2
-      - name: Install Node.js
-        uses: actions/setup-node@v2
+          args: --severity-threshold=high
+      
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/init@v2
         with:
-          node-version: "14"
-      - name: Install frontend dependencies
-        run: npm install
-      - name: Install Cypress
-        run: npm install cypress
-      - name: Run Cypress Tests
-        run: npx cypress run
+          languages: javascript
+      
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v2
+      
+      - name: Run dependency audit
+        run: npm audit --audit-level=high
+      
+      - name: Check for known vulnerabilities
+        run: |
+          npm audit --json > audit-report.json
+          if [ -s audit-report.json ]; then
+            echo "Vulnerabilities found!"
+            cat audit-report.json
+            exit 1
+          fi
 
+  # Linting and code quality
   lint:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          cd backend && npm ci
+          cd ../frontend && npm ci
+      
       - name: Run ESLint (backend)
         run: |
           cd backend
-          npx eslint .
+          npx eslint . --ext .js --format=checkstyle --output-file=eslint-backend.xml
+      
       - name: Run ESLint (frontend)
         run: |
           cd frontend
-          npx eslint .
+          npx eslint . --ext .js,.jsx --format=checkstyle --output-file=eslint-frontend.xml
+      
+      - name: Run Prettier check
+        run: |
+          cd backend && npx prettier --check .
+          cd ../frontend && npx prettier --check .
+      
+      - name: Upload ESLint results
+        uses: actions/upload-artifact@v3
+        with:
+          name: eslint-results
+          path: |
+            backend/eslint-backend.xml
+            frontend/eslint-frontend.xml
+
+  # Backend testing and validation
+  backend-tests:
+    runs-on: ubuntu-latest
+    services:
+      mongodb:
+        image: mongo:${{ env.MONGODB_VERSION }}
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: password123
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      nats:
+        image: nats:${{ env.NATS_VERSION }}-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: --jetstream --http_port 8222
+      
+      redis:
+        image: redis:${{ env.REDIS_VERSION }}-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+      
+      - name: Wait for services
+        run: |
+          echo "Waiting for MongoDB..."
+          until mongosh --host localhost:27017 --username admin --password password123 --authenticationDatabase admin --eval "db.adminCommand('ping')" > /dev/null 2>&1; do sleep 1; done
+          
+          echo "Waiting for NATS..."
+          until wget --no-verbose --tries=1 --spider http://localhost:8222/healthz > /dev/null 2>&1; do sleep 1; done
+          
+          echo "Waiting for Redis..."
+          until redis-cli -h localhost:6379 ping > /dev/null 2>&1; do sleep 1; done
+      
+      - name: Run backend tests
+        run: |
+          cd backend
+          npm test -- --reporter=spec --reporter=json --output-file=test-results.json
+      
+      - name: Run backend performance benchmarks
+        run: |
+          cd backend
+          npm run bench
+        env:
+          MONGODB_URI: mongodb://admin:password123@localhost:27017/accountability-test?authSource=admin
+          NATS_URL: nats://localhost:4222
+          REDIS_URL: redis://localhost:6379
+      
+      - name: Run MongoDB index analysis
+        run: |
+          cd backend
+          npm run bench:mongo
+        env:
+          MONGODB_URI: mongodb://admin:password123@localhost:27017/accountability-test?authSource=admin
+          NATS_URL: nats://localhost:4222
+          REDIS_URL: redis://localhost:6379
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-test-results
+          path: |
+            backend/test-results.json
+            backend/bench/performance-report.json
+            backend/bench/mongo-index-analysis.json
+            backend/bench/mongo-index-summary.md
+      
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+
+  # Frontend testing and validation
+  frontend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+      
+      - name: Run frontend tests
+        run: |
+          cd frontend
+          npm test -- --watchAll=false --coverage --coverageReporters=json --coverageReporters=lcov
+      
+      - name: Run frontend performance benchmarks
+        run: |
+          cd frontend
+          npm run bench
+      
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+      
+      - name: Run Lighthouse CI
+        run: |
+          cd frontend
+          npm run lighthouse
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-test-results
+          path: |
+            frontend/coverage/
+            frontend/bench/ui-performance-report.json
+            frontend/bench/lighthouse-report.json
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-build
+          path: frontend/build/
+
+  # E2E testing
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+    services:
+      mongodb:
+        image: mongo:${{ env.MONGODB_VERSION }}
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: password123
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      nats:
+        image: nats:${{ env.NATS_VERSION }}-alpine
+        ports:
+          - 4222:4222
+          - 8222:8222
+        options: --jetstream --http_port 8222
+      
+      redis:
+        image: redis:${{ env.REDIS_VERSION }}-alpine
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm ci
+          npm install cypress
+      
+      - name: Start backend services
+        run: |
+          docker-compose up -d mongodb nats redis
+          sleep 10
+      
+      - name: Start backend
+        run: |
+          cd backend
+          npm ci
+          npm start &
+          sleep 10
+      
+      - name: Start frontend
+        run: |
+          cd frontend
+          npm start &
+          sleep 30
+      
+      - name: Run Cypress tests
+        run: |
+          cd frontend
+          npx cypress run --config baseUrl=http://localhost:3000
+      
+      - name: Upload Cypress results
+        uses: actions/upload-artifact@v3
+        with:
+          name: cypress-results
+          path: frontend/cypress/videos/
+          if-no-files-found: ignore
+
+  # Performance and load testing
+  performance:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      
+      - name: Download test results
+        uses: actions/download-artifact@v3
+        with:
+          name: backend-test-results
+          path: bench/
+      
+      - name: Download frontend results
+        uses: actions/download-artifact@v3
+        with:
+          name: frontend-test-results
+          path: bench/
+      
+      - name: Install load testing dependencies
+        run: |
+          cd bench
+          npm install autocannon k6
+      
+      - name: Run comprehensive load tests
+        run: |
+          cd bench
+          node load-test.js --users 1000 --duration 600 --scenarios all
+      
+      - name: Run k6 performance tests
+        run: |
+          cd bench
+          k6 run --out json=load-test-results.json load-test-k6.js
+      
+      - name: Generate performance report
+        run: |
+          cd bench
+          node generate-performance-report.js
+      
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results
+          path: |
+            bench/load-test-results.json
+            bench/performance-report.json
+            bench/load-test-results.json
+
+  # Security and compliance
+  compliance:
+    runs-on: ubuntu-latest
+    needs: [security, backend-tests, frontend-tests]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download test results
+        uses: actions/download-artifact@v3
+        with:
+          name: backend-test-results
+          path: ./
+      
+      - name: Generate SBOM
+        run: |
+          npm install -g @cyclonedx/cyclonedx-npm
+          cd backend && cyclonedx-npm --output-file sbom-backend.xml
+          cd ../frontend && cyclonedx-npm --output-file sbom-frontend.xml
+      
+      - name: Run license compliance check
+        run: |
+          npm install -g license-checker
+          cd backend && license-checker --summary --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC"
+          cd ../frontend && license-checker --summary --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC"
+      
+      - name: Upload compliance artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-artifacts
+          path: |
+            backend/sbom-backend.xml
+            frontend/sbom-frontend.xml
+
+  # Build and package
+  build:
+    runs-on: ubuntu-latest
+    needs: [compliance]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      
+      - name: Build and push backend image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/accountability-backend:latest
+            ${{ secrets.DOCKER_USERNAME }}/accountability-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/accountability-frontend:latest
+            ${{ secrets.DOCKER_USERNAME }}/accountability-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Sign images with Cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.1.1'
+      
+      - name: Sign backend image
+        run: |
+          cosign sign --key env://COSIGN_PRIVATE_KEY ${{ secrets.DOCKER_USERNAME }}/accountability-backend:${{ github.sha }}
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      
+      - name: Sign frontend image
+        run: |
+          cosign sign --key env://COSIGN_PRIVATE_KEY ${{ secrets.DOCKER_USERNAME }}/accountability-frontend:${{ github.sha }}
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+
+  # Deploy to staging
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to staging
+        run: |
+          echo "Deploying to staging environment..."
+          # Add your staging deployment logic here
+          # Example: kubectl apply -f k8s/staging/
+      
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests on staging..."
+          # Add smoke test logic here
+
+  # Deploy to production
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Deploy to production
+        run: |
+          echo "Deploying to production environment..."
+          # Add your production deployment logic here
+          # Example: kubectl apply -f k8s/production/
+      
+      - name: Run production validation
+        run: |
+          echo "Validating production deployment..."
+          # Add production validation logic here
+
+  # Performance monitoring and reporting
+  performance-report:
+    runs-on: ubuntu-latest
+    needs: [performance]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download performance results
+        uses: actions/download-artifact@v3
+        with:
+          name: performance-results
+          path: ./
+      
+      - name: Generate performance summary
+        run: |
+          echo "## 📊 Performance Benchmark Results" > performance-summary.md
+          echo "" >> performance-summary.md
+          echo "### Backend Performance" >> performance-summary.md
+          if [ -f "bench/performance-report.json" ]; then
+            echo "- API Latency: $(jq -r '.api.singleLog.latency.p99' bench/performance-report.json)ms (p99)" >> performance-summary.md
+            echo "- Database Throughput: $(jq -r '.database.writePerformance.unordered.throughput' bench/performance-report.json) ops/s" >> performance-summary.md
+          fi
+          echo "" >> performance-summary.md
+          echo "### Frontend Performance" >> performance-summary.md
+          if [ -f "bench/ui-performance-report.json" ]; then
+            echo "- Time to Interactive: $(jq -r '.metrics.navigation.timeToInteractive' bench/ui-performance-report.json)ms" >> performance-summary.md
+            echo "- Bundle Size: $(jq -r '.metrics.bundle.totalSizeMB' bench/ui-performance-report.json)MB" >> performance-summary.md
+          fi
+      
+      - name: Comment performance results
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('performance-summary.md', 'utf8');
+            
+            if (context.eventName === 'pull_request') {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }
+      
+      - name: Upload performance summary
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-summary
+          path: performance-summary.md
