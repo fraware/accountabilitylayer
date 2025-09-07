@@ -1,6 +1,6 @@
 # Accountability Layer
 
-A state-of-the-art accountability and audit logging system built with modern software engineering practices.
+Accountability and audit logging system for AI Agents.
 
 ## Architecture
 
@@ -9,7 +9,7 @@ A state-of-the-art accountability and audit logging system built with modern sof
 │   Frontend      │    │   Backend API   │    │   Log Worker    │
 │   (React)       │◄──►│   (Express)     │◄──►│   (Event Bus)   │
 │   + Virtualized │    │   + OpenTelemetry│   │   + Audit Chain │
-│   + React Query │    │   + Compression │   │   + Merkle Tree │
+│   + React Query │    │   + Compression │    │   + Merkle Tree │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          │                       │                       │
