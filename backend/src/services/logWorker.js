@@ -25,10 +25,7 @@ class LogWorker {
       
       // Connect to MongoDB
       const dbUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/accountability';
-      await mongoose.connect(dbUri, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-      });
+      await mongoose.connect(dbUri);
       console.log('✅ Connected to MongoDB');
       
       // Subscribe to log events

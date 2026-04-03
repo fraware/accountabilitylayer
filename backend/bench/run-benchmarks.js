@@ -11,8 +11,6 @@ async function connectDB() {
   try {
     const mongoUri = process.env.MONGODB_URI || 'mongodb://admin:password123@localhost:27017/accountability?authSource=admin';
     await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,

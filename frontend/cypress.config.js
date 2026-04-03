@@ -1,7 +1,9 @@
-module.exports = {
+import { defineConfig } from 'cypress';
+
+export default defineConfig({
   video: false,
   e2e: {
-    setupNodeEvents(on, config) {},
+    setupNodeEvents() {},
     baseUrl: 'http://localhost:3000',
   },
-}
+});

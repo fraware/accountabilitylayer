@@ -1,65 +1,94 @@
 # Contributing to Accountability Layer
 
-Thank you for your interest in contributing to the Accountability Layer project! To maintain a high-quality codebase, please follow these guidelines.
+Thank you for contributing. The following guidelines keep reviews predictable and CI green.
 
-## Code of Conduct
+## Code of conduct
 
-Please review our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before participating.
+Be respectful, assume good intent, and keep discussion focused on the work. Harassment and exclusionary behavior are not acceptable.
 
-## How to Contribute
+## Repository layout
 
-1. **Fork the Repository:**
+This is an **npm workspaces** monorepo:
 
-   - Click the "Fork" button at the top‑right of the GitHub page.
+| Workspace               | Path        | Role                                      |
+| ----------------------- | ----------- | ----------------------------------------- |
+| `accountabilitylayer`   | root        | Shared scripts (format), Prettier         |
+| `accountability-backend`| `backend/`  | Express API, TypeScript build to `dist/`  |
+| `accountability-frontend` | `frontend/` | Vite + React 19 UI                        |
+| `accountability-bench`  | `bench/`    | Load scripts (autocannon, k6 helpers)     |
 
-2. **Clone Your Fork:**
+Install once from the **repository root** (Node **22+**):
 
-   ```bash
-   git clone https://github.com/yourusername/accountability-layer.git
-   cd accountability-layer
-   Create a Feature Branch: Use a descriptive branch name:
-   ```
+```bash
+git clone <your-fork-or-upstream-url>
+cd accountabilitylayer
+npm ci
+```
 
-3. **Create a Feature Branch: Use a descriptive branch name:**
+Use `npm install` locally when you change dependencies and need the lockfile updated (then commit `package-lock.json`).
 
-   ```bash
-   git checkout -b feature/your-feature-name
+## How to contribute
 
-   ```
+1. **Fork** the repository (if you do not have write access).
 
-4. **Make Your Changes:**
-
-- Follow the established coding standards.
-- Add tests for any new features or bug fixes.
-- Update documentation as needed.
-
-5. **Commit Your Changes: Write clear commit messages:**
+2. **Clone** your fork and add `upstream` if you plan to sync often:
 
    ```bash
-   git commit -m "Add feature: description"
-
+   git clone https://github.com/<you>/accountabilitylayer.git
+   cd accountabilitylayer
    ```
 
-6. **Push and Create a Pull Request:**
+3. **Branch** from `main` or `develop` (match what your PR targets):
 
    ```bash
-   git push origin feature/your-feature-name
+   git checkout -b feature/short-description
    ```
 
-Open a pull request on GitHub and describe your changes in detail.
+4. **Implement** changes with tests where it makes sense. Match existing style; run format and lint before pushing.
 
-## Branching Strategy
+5. **Commit** with clear messages (imperative mood, scoped when helpful):
 
-- **main**: The stable, production-ready branch.
-- **develop**: Integration branch for features before merging into main.
-- **feature/** branches: For new features or bug fixes.
+   ```bash
+   git commit -m "Add validation for log bulk payload"
+   ```
 
-## Pull Request Guidelines
+6. **Push** and open a **pull request** describing behavior, risk, and how you tested.
 
-- Ensure your pull request:
-  - Is well documented.
-  - Contains relevant tests.
-  - Passes all CI/CD checks.
-  - Does not introduce breaking changes without prior discussion.
+   ```bash
+   git push origin feature/short-description
+   ```
 
-Thank you for your contributions!
+## Checks to run locally
+
+From the repo root:
+
+```bash
+npm run format:check
+npm run lint --workspaces --if-present
+npm run build -w accountability-backend
+npm test -w accountability-backend          # MongoDB reachable for integration paths
+npm run test -w accountability-frontend
+```
+
+OpenAPI is linted in CI with Redocly:
+
+```bash
+npx --yes @redocly/cli@1 lint docs/api-spec.yaml
+```
+
+End-to-end tests need the stack or API + UI running; see [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md).
+
+## Branching
+
+- **main**: stable default; protect with required checks.
+- **develop**: optional integration branch when the team uses it.
+- **feature/**, **fix/**: short-lived branches for PRs.
+
+## Pull requests
+
+- Describe what changed and why; link issues when applicable.
+- Keep unrelated refactors out of the same PR when possible.
+- Ensure CI passes (lint, tests, OpenAPI, audits as configured).
+- Breaking changes need explicit discussion in the PR description.
+
+Thank you for helping improve the Accountability Layer.

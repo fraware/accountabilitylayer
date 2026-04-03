@@ -182,10 +182,46 @@ paths:
           name: keyword
           schema:
             type: string
-          description: "Keyword search in log details."
+          description: "Full-text search (MongoDB $text) over indexed log fields."
+        - in: query
+          name: reviewed
+          schema:
+            type: string
+            enum: ["true", "false"]
+          description: "When set, filter by manual review flag."
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 100
       responses:
         '200':
-          description: "A filtered list of log entries."
+          description: "A filtered list of log entries with pagination."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                  pagination:
+                    type: object
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      pages:
+                        type: integer
   /logs/summary/{agent_id}:
     get:
       summary: "Get summary statistics for logs of an agent"

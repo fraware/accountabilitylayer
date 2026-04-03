@@ -1,88 +1,104 @@
-# Accountability Layer Performance Benchmarks
+# Accountability Layer benchmarks and load scripts
 
-This directory contains comprehensive performance benchmarks for the Accountability Layer system.
+This package holds **Node-based** load utilities (`autocannon`) and shared scripts used with **k6** in CI. Backend and frontend also ship their own benchmark npm scripts under `backend/` and `frontend/`.
 
-## Quick Start
+## Install
+
+Bench dependencies install with the rest of the monorepo from the **repository root**:
 
 ```bash
-# Backend benchmarks
-cd backend && npm run bench
-
-# Frontend benchmarks  
-cd frontend && npm run bench
-
-# Generate flamegraphs
-cd backend && npm run profile
+cd /path/to/accountabilitylayer
+npm ci
 ```
 
-## Benchmark Categories
+CI sometimes uses `npm ci --prefix bench` when only the bench folder is needed; locally, root `npm ci` is enough because `bench` is a workspace.
 
-### 1. Backend Performance (P0)
-- **API Latency**: p50/p95/p99 response times
-- **Throughput**: Requests per second under load
-- **Database Performance**: MongoDB query latency and index efficiency
-- **Memory Usage**: RSS and heap usage patterns
-- **CPU Profiling**: Flamegraphs and hotspots
+## Backend (workspace: `accountability-backend`)
 
-### 2. Frontend Performance (P0)
-- **Time to Interactive**: React component render times
-- **Bundle Analysis**: Code splitting and optimization
-- **Memory Leaks**: Component lifecycle memory usage
-- **Network Performance**: API call efficiency
+Run from the repo root:
 
-### 3. End-to-End Performance
-- **Full Request Path**: Frontend → API → MongoDB → WebSocket
-- **Real-time Updates**: Socket.IO performance under load
-- **Concurrent Users**: System behavior with multiple active sessions
-
-## Current Bottlenecks
-
-*To be identified through benchmarking*
-
-## Performance Targets
-
-- **API Response**: p99 < 200ms
-- **Database Queries**: p99 < 100ms  
-- **WebSocket Updates**: p99 < 50ms
-- **Frontend TTI**: < 2s
-- **Memory Usage**: < 512MB per service
-
-## Running Benchmarks
-
-### Backend Benchmarks
 ```bash
-cd backend
-npm run bench
+npm run bench -w accountability-backend
+npm run bench:comprehensive -w accountability-backend
+npm run bench:mongo -w accountability-backend
+npm run bench:e2e -w accountability-backend
+npm run profile -w accountability-backend
 ```
 
-### Frontend Benchmarks
+Or from `backend/` with `npm run <script>` as usual.
+
+Artifacts (when scripts write them) typically land under `backend/bench/` (for example performance or Mongo reports, depending on the script).
+
+## Frontend (workspace: `accountability-frontend`)
+
 ```bash
-cd frontend
-npm run bench
+npm run bench -w accountability-frontend
+npm run lighthouse -w accountability-frontend
 ```
 
-### Load Testing
+`lighthouse` expects the Vite dev server (or preview) at `http://localhost:3000` unless you change the script in `frontend/package.json`.
+
+Reports often go under `frontend/bench/`.
+
+## This folder (`bench/`): HTTP smoke and k6
+
+### Quick health check (autocannon)
+
+Requires the API listening (default `http://127.0.0.1:5000`):
+
 ```bash
-cd bench
-node load-test.js --users 1000 --duration 300
+node bench/quick-health-bench.js
 ```
 
-### Memory Profiling
+Override the base URL:
+
 ```bash
-cd backend
-npm run profile
+set TARGET_URL=http://localhost:5000
+node bench/quick-health-bench.js
 ```
 
-## Interpreting Results
+On Unix:
 
-1. **Latency Percentiles**: Focus on p95 and p99 for production readiness
-2. **Throughput**: Ensure system can handle expected load with headroom
-3. **Memory**: Watch for leaks and excessive usage
-4. **CPU**: Identify hotspots for optimization
+```bash
+TARGET_URL=http://localhost:5000 node bench/quick-health-bench.js
+```
 
-## Continuous Monitoring
+### k6 load script
 
-Benchmarks run automatically in CI/CD pipeline and results are published to:
-- Grafana dashboards
-- Performance regression alerts
-- Historical trend analysis
+Install [k6](https://k6.io/docs/get-started/installation/) separately. From the repo root:
+
+```bash
+k6 run --summary-export=bench/k6-summary.json bench/load-test-k6.js
+```
+
+Default target is `http://127.0.0.1:5000`. Override:
+
+```bash
+k6 run -e TARGET_URL=http://localhost:5000 bench/load-test-k6.js
+```
+
+### Legacy Node load test
+
+```bash
+node bench/load-test.js --users 1000 --duration 300
+```
+
+(Use `--help` or read the script if flags differ in your checkout.)
+
+### Aggregate report helper
+
+```bash
+node bench/generate-performance-report.js
+```
+
+Used in CI after other steps produce JSON inputs; see `.github/workflows/ci.yml` for the exact sequence.
+
+## Interpreting results
+
+- Prefer **p95/p99** latency and error rates over averages alone.
+- Compare runs on the same hardware and with the same `TARGET_URL` / env.
+- Watch memory and CPU when profiling (`npm run profile -w accountability-backend`).
+
+## CI
+
+The workflow runs backend/frontend bench scripts, `quick-health-bench.js`, k6 against `load-test-k6.js`, and report generation where configured. Artifact paths are defined in `.github/workflows/ci.yml`.

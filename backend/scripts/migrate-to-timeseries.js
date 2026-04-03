@@ -24,10 +24,7 @@ class TimeSeriesMigration {
 
   async connect() {
     try {
-      await mongoose.connect(dbUri, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-      });
+      await mongoose.connect(dbUri);
       console.log('✅ Connected to MongoDB');
     } catch (error) {
       console.error('❌ MongoDB connection failed:', error);

@@ -1,5 +1,21 @@
 {
-  "dependencies": {
-    "@mui/icons-material": "^6.4.6"
+  "name": "accountabilitylayer",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "bench"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npx prettier --write \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\"",
+    "format:check": "npx prettier --check \"**/*.{js,jsx,ts,tsx,json,md,yml,yaml}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

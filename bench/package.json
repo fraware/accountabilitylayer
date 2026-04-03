@@ -1,0 +1,9 @@
+{
+  "name": "accountability-bench",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Load and performance scripts for Accountability Layer",
+  "dependencies": {
+    "autocannon": "^7.15.0"
+  }
+}

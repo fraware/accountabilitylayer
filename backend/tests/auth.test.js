@@ -1,10 +1,13 @@
 const request = require('supertest');
 const express = require('express');
-const bodyParser = require('body-parser');
-const authRoutes = require('../src/routes/authRoutes');
+
+process.env.JWT_SECRET = 'testsecret';
+
+const authMod = require('../src/routes/authRoutes');
+const authRoutes = authMod.default ?? authMod;
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.json());
 app.use('/api/v1/auth', authRoutes);
 
 describe('Authentication API', () => {
@@ -14,7 +17,7 @@ describe('Authentication API', () => {
       .send({ username: 'auditor1', password: 'password' })
       .expect(200)
       .expect((res) => {
-        if (!res.body.token) throw new Error("Missing token");
+        if (!res.body.token) throw new Error('Missing token');
       })
       .end(done);
   });

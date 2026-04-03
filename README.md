@@ -1,324 +1,330 @@
-# Accountability Layer
+<h1 align="center">Accountability Layer</h1>
 
-Accountability and audit logging system for AI Agents.
+<p align="center">
+  <strong>Audit and accountability for AI agents</strong><br />
+  Capture decision steps, detect anomalies, and give teams a searchable trail with a modern API and dashboard.
+</p>
+
+<p align="center">
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node.js-22%2B-417896?logo=node.js&logoColor=white" alt="Node.js 22+" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+</p>
+
+<p align="center">
+  <img src="assets/logo.png" width="260" alt="Accountability Layer logo: stylized brain with circuit traces, magnifying glass, and checkmark" />
+</p>
+
+---
+
+## Quick start
+
+**Requirements:** [Node.js 22+](https://nodejs.org/) and, for integration tests or full features, MongoDB (and optionally NATS, Redis via Compose).
+
+```bash
+git clone <repository-url>
+cd accountabilitylayer
+npm ci
+```
+
+Run the API and UI in two terminals (from the **repository root**):
+
+```bash
+npm run dev -w accountability-backend
+npm run dev -w accountability-frontend
+```
+
+- API default: `http://localhost:5000` (see `PORT` in `backend/.env`)
+- UI default: `http://localhost:3000`
+
+**Full stack** (MongoDB, NATS, Redis, backend, notifier, worker, frontend, Prometheus, Grafana):
+
+```bash
+docker compose up --build
+```
+
+Copy `frontend/.env.example` to `frontend/.env` and create `backend/.env` for local secrets. See [Configuration](#configuration) and [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for details.
+
+---
+
+## What you get
+
+| Area | Details |
+| ---- | ------- |
+| **Audit trail** | Structured logs per agent and step, review workflow, search |
+| **API** | REST under `/api/v1`, JWT auth, OpenAPI spec in `docs/api-spec.yaml` |
+| **Dashboard** | Vite, React 19, MUI 6, TanStack Query, virtualized lists |
+| **Pipeline** | NATS JetStream for log events; worker consumes and persists |
+| **Real-time** | Notifier with Socket.IO; Redis adapter for horizontal scale |
+| **Operations** | Request IDs, structured logs (pino), Prometheus `/metrics`, OpenTelemetry |
+
+---
 
 ## Architecture
 
-```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Frontend      │    │   Backend API   │    │   Log Worker    │
-│   (React)       │◄──►│   (Express)     │◄──►│   (Event Bus)   │
-│   + Virtualized │    │   + OpenTelemetry│   │   + Audit Chain │
-│   + React Query │    │   + Compression │    │   + Merkle Tree │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Notifier      │    │   NATS          │    │   MongoDB       │
-│   (Socket.IO)   │    │   JetStream     │    │   Time-Series   │
-│   + Redis       │    │   + Streams     │    │   + TTL Indexes │
-│   + Rate Limit  │    │   + DLQ         │    │   + Compression │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Redis         │    │   Prometheus    │    │   Grafana       │
-│   (Adapter)     │    │   (Metrics)     │    │   (Dashboards)  │
-│   + Rate Limit  │    │   + OTLP        │    │   + Alerts      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-```
+Services talk over HTTP, NATS, and MongoDB. The diagram below is a high-level map; ports follow your `.env` and Compose file.
 
-### Running Benchmarks
+```mermaid
+flowchart TB
+  subgraph edge["Clients"]
+    UI["Dashboard<br/>Vite · React 19"]
+  end
 
-```bash
-# Comprehensive end-to-end benchmarking (recommended)
-cd backend && npm run bench:comprehensive
+  subgraph app["Application tier"]
+    API["Backend API<br/>Express · TypeScript"]
+    NOT["Notifier<br/>Socket.IO"]
+    WRK["Log worker<br/>NATS consumer"]
+  end
 
-# MongoDB index analysis
-cd backend && npm run bench:mongo
+  subgraph data["Data & messaging"]
+    MDB[("MongoDB<br/>time-series · TTL")]
+    NATS["NATS JetStream"]
+    RDS[("Redis<br/>adapter · limits")]
+  end
 
-# End-to-end performance profiling
-cd backend && npm run bench:e2e
+  subgraph obs["Observability"]
+    PROM["Prometheus"]
+    GRAF["Grafana"]
+  end
 
-# Traditional backend benchmarks
-cd backend && npm run bench
-
-# Frontend performance tests
-cd frontend && npm run bench
-
-# Load testing
-cd bench
-node load-test.js --users 1000 --duration 300
-
-# CPU profiling with flamegraphs
-cd backend && npm run profile
-
-# UI performance with Lighthouse
-cd frontend && npm run lighthouse
+  UI <-->|REST · JWT| API
+  UI <-->|WebSocket| NOT
+  API --> NATS
+  WRK --> NATS
+  WRK --> MDB
+  NOT --> RDS
+  API --> MDB
+  API --> PROM
+  PROM --> GRAF
 ```
 
-**Benchmark Outputs:**
-- `comprehensive-benchmark-report.json` - Complete performance analysis
-- `comprehensive-benchmark-summary.md` - Human-readable summary with recommendations
-- `mongo-index-analysis.json` - MongoDB performance analysis
-- `performance-plots.html` - Interactive performance charts
-- `profile/` - CPU and memory profiling data with flamegraphs
+---
 
-## Database Schema
+## Repository layout
 
-### Time-Series Collections
+Monorepo with **npm workspaces** (always install from the root).
 
-The system uses MongoDB time-series collections for optimal performance:
+| Workspace | Path | Role |
+| --------- | ---- | ---- |
+| Root | `.` | Shared scripts, Prettier |
+| `accountability-backend` | `backend/` | API, TypeScript → `dist/` |
+| `accountability-frontend` | `frontend/` | SPA build |
+| `accountability-bench` | `bench/` | Load helpers (autocannon, k6 scripts) |
+
+---
+
+## Data model
+
+MongoDB **time-series** style storage keeps writes and queries efficient for high-volume agent logs.
+
+**Document shape (conceptual):**
 
 ```javascript
-// Log Schema with Time-Series Support
 {
-  agent_id: String,           // Meta field for time-series
-  timestamp: Date,            // Time field for time-series
+  agent_id: String, // meta (time-series)
+  timestamp: Date, // time field
   step_id: Number,
   trace_id: String,
   user_id: String,
   input_data: Mixed,
   output: Mixed,
   reasoning: String,
-  status: String,             // success|failure|anomaly
+  status: String, // success | failure | anomaly
   reviewed: Boolean,
   review_comments: String,
   metadata: Mixed,
   version: Number,
-  retention_tier: String,     // hot|warm|cold
-  hash: String,               // Cryptographic hash
+  retention_tier: String, // hot | warm | cold
+  hash: String,
   createdAt: Date,
-  updatedAt: Date
+  updatedAt: Date,
 }
 ```
 
-### Indexes
+**Indexes (typical):** compound `(agent_id, timestamp)`, `(status, timestamp)`; TTL by retention; text on reasoning and comments; covering indexes for hot queries.
 
-- **Compound Indexes**: `(agent_id, timestamp)`, `(status, timestamp)` 
-- **TTL Indexes**: Automatic data expiration based on retention tier 
-- **Text Indexes**: Full-text search on reasoning and comments 
-- **Covering Indexes**: Optimized for common query patterns 
+---
 
-## Event Bus Architecture
+## Events & real-time
 
-### NATS JetStream Streams
+**NATS JetStream (streams):**
 
-- **LOGS**: Main log event stream 
-- **LOGS_DLQ**: Dead letter queue for failed events 
-- **AUDIT**: Audit event stream 
-- **RETRY**: Exponential backoff retry mechanism 
+| Stream | Role |
+| ------ | ---- |
+| `LOGS` | Primary log pipeline |
+| `LOGS_DLQ` | Failed deliveries |
+| `AUDIT` | Audit events |
+| `RETRY` | Backoff retries |
 
-### Event Types
+**Example subjects / payloads:**
 
 ```javascript
-// Log Creation Event
-{
-  subject: 'logs.create',
-  data: { /* log data */ },
-  metadata: { userId, ip, userAgent },
-  idempotencyKey: 'uuid',
-  timestamp: 'iso-string'
-}
+// logs.create
+{ subject: 'logs.create', data: { /* log */ }, metadata: { userId, ip, userAgent }, idempotencyKey, timestamp }
 
-// Log Update Event
-{
-  subject: 'logs.update',
-  data: { logId, updates },
-  metadata: { userId, ip, userAgent },
-  auditTrail: true
-}
+// logs.update
+{ subject: 'logs.update', data: { logId, updates }, metadata: { userId, ip, userAgent }, auditTrail: true }
 
-// Bulk Logs Event
-{
-  subject: 'logs.bulk',
-  data: { logs: [/* array of logs */] },
-  metadata: { userId, ip, userAgent, count },
-  batchId: 'uuid'
-}
+// logs.bulk
+{ subject: 'logs.bulk', data: { logs: [] }, metadata: { userId, ip, userAgent, count }, batchId }
 ```
 
-## Real-time Communication
-
-### Socket.IO with Redis Adapter
-
-- **Horizontal Scaling**: Multiple notifier instances 
-- **Room Management**: Dynamic room creation based on filters 
-- **Backpressure Handling**: Automatic throttling for large rooms 
-- **Connection Tracking**: Real-time connection monitoring 
-- **Rate Limiting**: Per-user WebSocket connection limits 
-
-### WebSocket Events
+**Socket.IO (notifier):** rooms keyed by filters, Redis adapter for multiple notifier instances, rate limits and backpressure for large rooms.
 
 ```javascript
-// Join room with filters
-socket.emit('join-room', {
-  room: 'agent-logs',
-  filters: { agentId: 'agent-1' },
-  userId: 'user-123'
-});
-
-// Receive real-time updates
-socket.on('log-created', (data) => {
-  console.log('New log:', data);
-});
+socket.emit('join-room', { room: 'agent-logs', filters: { agentId: 'agent-1' }, userId: 'user-123' });
+socket.on('log-created', (data) => { /* ... */ });
 ```
 
-## Monitoring & Observability
+---
 
-### OpenTelemetry Instrumentation 
+## Observability
 
-- **Distributed Tracing**: End-to-end request tracking
-- **Custom Metrics**: Request rates, latencies, database operations
-- **Auto-instrumentation**: HTTP, MongoDB, Redis, NATS
-- **OTLP Export**: Prometheus and Jaeger integration
+| Endpoint | Purpose |
+| -------- | ------- |
+| `GET /healthz` | Liveness |
+| `GET /readyz` | Readiness |
+| `GET /metrics` | Prometheus scrape |
+| `GET /telemetry` | Telemetry status |
 
-### Health Endpoints
+OpenTelemetry covers traces and metrics with OTLP export; the stack auto-instruments HTTP, MongoDB, Redis, and NATS where configured.
 
-- **`/healthz`**: Liveness probe 
-- **`/readyz`**: Readiness probe 
-- **`/metrics`**: Prometheus metrics 
-- **`/telemetry`**: OpenTelemetry status 
+**Grafana** (Compose): `http://localhost:3002` — default credentials are defined in Compose (`admin` / `admin123` unless you changed them). Dashboards cover services, logs, the event bus, WebSockets, and traces.
 
-### Metrics
+---
 
-- **System Metrics**: CPU, memory, uptime 
-- **Application Metrics**: Request rates, latencies, errors 
-- **Business Metrics**: Log creation rates, anomaly detection 
-- **Custom Metrics**: Event bus throughput, WebSocket connections 
+## API
 
-### Dashboards
+**Logs**
 
-Access Grafana at `http://localhost:3002` (admin/admin123):
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `POST` | `/api/v1/logs` | Create one log |
+| `POST` | `/api/v1/logs/bulk` | Create many |
+| `GET` | `/api/v1/logs/:agent_id` | List by agent |
+| `GET` | `/api/v1/logs/:agent_id/:step_id` | Single log |
+| `PUT` | `/api/v1/logs/:agent_id/:step_id` | Update review fields |
+| `GET` | `/api/v1/logs/search` | Filtered search |
+| `GET` | `/api/v1/logs/summary/:agent_id` | Summary |
 
-- **System Overview**: Service health and performance 
-- **Log Analytics**: Creation rates, query performance 
-- **Event Bus**: NATS stream health and throughput 
-- **Real-time**: WebSocket connections and notifications 
-- **OpenTelemetry**: Distributed traces and metrics 
+**Health & ops** (often unauthenticated): `/healthz`, `/readyz`, `/metrics`, `/telemetry`.
 
-## Testing
-
-### Test Suite
+**Authentication:** send a JWT on protected routes:
 
 ```bash
-# Backend tests
-cd backend
-npm test
-
-# Frontend tests
-cd frontend
-npm test
-
-# E2E tests
-cd frontend
-npm run cypress:run
-
-# Performance tests
-npm run bench
-
-# Security tests
-npm audit
+curl -H "Authorization: Bearer <token>" "http://localhost:5000/api/v1/logs"
 ```
 
-## API Documentation
+Interactive docs: set `SERVE_OPENAPI=true` and open `/api-docs` (Swagger from `docs/api-spec.yaml`).
 
-### Endpoints
+---
 
-#### Logs
-
-- `POST /api/v1/logs` - Create single log 
-- `POST /api/v1/logs/bulk` - Create multiple logs 
-- `GET /api/v1/logs/:agent_id` - Get logs by agent 
-- `GET /api/v1/logs/:agent_id/:step_id` - Get specific log 
-- `PUT /api/v1/logs/:agent_id/:step_id` - Update log review 
-- `GET /api/v1/logs/search` - Search logs with filters 
-- `GET /api/v1/logs/summary/:agent_id` - Get log summary 
-
-#### Health
-
-- `GET /healthz` - Health check 
-- `GET /readyz` - Readiness check 
-- `GET /metrics` - Prometheus metrics 
-- `GET /telemetry` - OpenTelemetry status 
-
-### Authentication
-
-All API endpoints (except health checks) require a valid JWT token:
+## Docker Compose
 
 ```bash
-curl -H "Authorization: Bearer <token>" \
-     http://localhost:5000/api/v1/logs
+docker compose up --build
 ```
+
+The **log-worker** has no HTTP server; its healthcheck is **disabled** in Compose because liveness is process-based. MongoDB is initialized with [`scripts/init-mongo.js`](scripts/init-mongo.js) on first start. Frontend is published on host port **3000** (nginx inside the container).
+
+---
 
 ## Configuration
 
-### Environment Variables
+**Backend (representative variables):**
+
+| Variable | Role |
+| -------- | ---- |
+| `MONGODB_URI` | Database connection |
+| `NATS_URL` | Messaging |
+| `REDIS_URL` | Cache / notifier adapter |
+| `PORT` | API port |
+| `NOTIFIER_PORT` | Notifier |
+| `FRONTEND_URL` | CORS / notifier origins |
+| `JWT_SECRET` | Token signing |
+| `OTLP_ENDPOINT` | Trace/metric export |
+| `LOG_LEVEL` | pino level |
+| `SERVE_OPENAPI` | `true` to mount Swagger UI |
+| `RATE_LIMIT_ENABLED`, `COMPRESSION_ENABLED` | Middleware toggles |
+
+**Example `.env` fragment:**
 
 ```bash
-# MongoDB
 MONGODB_URI=mongodb://admin:password@localhost:27017/accountability
-
-# NATS
 NATS_URL=nats://localhost:4222
-
-# Redis
 REDIS_URL=redis://localhost:6379
-
-# OpenTelemetry
 OTLP_ENDPOINT=http://localhost:4318
-
-# Service Ports
 PORT=5000
 NOTIFIER_PORT=3001
-
-# Frontend URLs
 FRONTEND_URL=http://localhost:3000
-
-# Security
 JWT_SECRET=your-secret-key
-RATE_LIMIT_ENABLED=true
-COMPRESSION_ENABLED=true
+LOG_LEVEL=info
+SERVE_OPENAPI=true
 ```
+
+**Frontend (Vite):** only `VITE_*` variables are exposed to the browser. Copy `frontend/.env.example` to `frontend/.env`.
+
+```bash
+VITE_API_URL=http://localhost:5000/api/v1
+VITE_NOTIFIER_URL=http://localhost:3001
+```
+
+---
+
+## Testing & quality
+
+```bash
+npm ci
+# or: npm install   # when changing dependencies / lockfile
+```
+
+| Command | Purpose |
+| ------- | ------- |
+| `npm test -w accountability-backend` | Mocha + tsx (`.mocharc.cjs`); needs MongoDB when persistence is exercised |
+| `npm run test -w accountability-frontend` | Vitest |
+| `npm run cypress:run -w accountability-frontend` | E2E (start API + UI first) |
+| `npm run lint --workspaces --if-present` | ESLint per package |
+| `npm run format:check` | Prettier (root) |
+| `npx --yes @redocly/cli@1 lint docs/api-spec.yaml` | OpenAPI (matches CI) |
+| `npm audit --audit-level=high` | Dependency audit; CI also audits `backend/` and `frontend/` |
+
+More: [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md), [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md).
+
+---
+
+## Benchmarks
+
+From the **repository root** (after `npm ci`):
+
+| Target | Command |
+| ------ | ------- |
+| Backend suites | `npm run bench -w accountability-backend` (and `bench:comprehensive`, `bench:mongo`, `bench:e2e`, `profile`) |
+| Frontend | `npm run bench -w accountability-frontend`, `npm run lighthouse -w accountability-frontend` |
+| HTTP smoke | `TARGET_URL=http://127.0.0.1:5000 node bench/quick-health-bench.js` |
+| k6 (install [k6](https://k6.io/) separately) | `k6 run --summary-export=bench/k6-summary.json bench/load-test-k6.js` |
+| Heavy autocannon | `node bench/load-test.js --users 1000 --duration 300` |
+
+Outputs land under `backend/bench/`, `frontend/bench/`, or `bench/` depending on the script. Full notes: [bench/README.md](bench/README.md).
+
+---
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests for new functionality
-5. Run the test suite
-6. Submit a pull request
+See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md): branch from the default line, run format/lint/tests for workspaces you touch, and keep docs in sync with behavior.
 
-### Development Guidelines
-
-- Follow the existing code style
-- Add comprehensive tests
-- Update documentation
-- Run performance benchmarks
-- Ensure all health checks pass
-- Follow security best practices
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Released under the [MIT License](LICENSE).
+
+---
 
 ## Acknowledgments
 
-- MongoDB for time-series collections
-- NATS for reliable event streaming
-- Socket.IO for real-time communication
-- OpenTelemetry for observability
-- Prometheus and Grafana for monitoring
-- The open-source community for inspiration
+Built with ideas and software from the MongoDB, NATS, Socket.IO, OpenTelemetry, Prometheus, Grafana, and wider open-source communities.
+
+---
 
 ## Support
 
-For questions and support:
-
-- Create an issue on GitHub
-- Check the documentation
-- Review the performance benchmarks
-- Monitor the health endpoints
+Open an issue for bugs or design discussion. Use health and metrics endpoints when debugging deployments, and refer to this README and the [developer guide](docs/DEVELOPER_GUIDE.md) for everyday workflows.

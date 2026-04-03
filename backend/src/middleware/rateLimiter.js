@@ -11,10 +11,8 @@ class RateLimiterService {
 
   async initialize(options = {}) {
     try {
-      const {
-        redisUrl = process.env.REDIS_URL || 'redis://localhost:6379',
-        enableRedis = true
-      } = options;
+      const { redisUrl = process.env.REDIS_URL || 'redis://localhost:6379', enableRedis = true } =
+        options;
 
       if (enableRedis) {
         this.redisClient = redis.createClient({ url: redisUrl });
@@ -25,7 +23,6 @@ class RateLimiterService {
       this.createLimiters();
       this.isInitialized = true;
       console.log('✅ Rate limiter service initialized');
-
     } catch (error) {
       console.error('❌ Failed to initialize rate limiter:', error);
       // Fallback to in-memory storage
@@ -37,172 +34,202 @@ class RateLimiterService {
 
   createLimiters() {
     // Global rate limiter
-    this.limiters.set('global', rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 1000, // Limit each IP to 1000 requests per windowMs
-      message: {
-        error: 'Too many requests from this IP',
-        retryAfter: '15 minutes'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
-    }));
+    this.limiters.set(
+      'global',
+      rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 1000, // Limit each IP to 1000 requests per windowMs
+        message: {
+          error: 'Too many requests from this IP',
+          retryAfter: '15 minutes',
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: this.redisClient
+          ? new RedisStore({
+              sendCommand: (...args) => this.redisClient.sendCommand(args),
+            })
+          : undefined,
+      })
+    );
 
     // Authentication rate limiter
-    this.limiters.set('auth', rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 5, // Limit each IP to 5 auth attempts per windowMs
-      message: {
-        error: 'Too many authentication attempts',
-        retryAfter: '15 minutes'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
-    }));
+    this.limiters.set(
+      'auth',
+      rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 5, // Limit each IP to 5 auth attempts per windowMs
+        message: {
+          error: 'Too many authentication attempts',
+          retryAfter: '15 minutes',
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: this.redisClient
+          ? new RedisStore({
+              sendCommand: (...args) => this.redisClient.sendCommand(args),
+            })
+          : undefined,
+      })
+    );
 
     // API rate limiter per user
-    this.limiters.set('api', rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: (req) => {
-        // Different limits based on user role
-        const user = req.user;
-        if (!user) return 100; // Anonymous users
-        
-        switch (user.role) {
-          case 'admin':
-            return 10000;
-          case 'moderator':
-            return 5000;
-          case 'analyst':
-            return 2000;
-          case 'viewer':
-            return 1000;
-          default:
-            return 500;
-        }
-      },
-      keyGenerator: (req) => {
-        // Use user ID if authenticated, otherwise IP
-        return req.user ? `user:${req.user.id}` : `ip:${req.ip}`;
-      },
-      message: {
-        error: 'API rate limit exceeded',
-        retryAfter: '15 minutes'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
-    }));
+    this.limiters.set(
+      'api',
+      rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: (req) => {
+          // Different limits based on user role
+          const user = req.user;
+          if (!user) return 100; // Anonymous users
+
+          switch (user.role) {
+            case 'admin':
+              return 10000;
+            case 'moderator':
+              return 5000;
+            case 'analyst':
+              return 2000;
+            case 'viewer':
+              return 1000;
+            default:
+              return 500;
+          }
+        },
+        keyGenerator: (req) => {
+          // Use user ID if authenticated, otherwise IP
+          return req.user ? `user:${req.user.id}` : `ip:${req.ip}`;
+        },
+        message: {
+          error: 'API rate limit exceeded',
+          retryAfter: '15 minutes',
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: this.redisClient
+          ? new RedisStore({
+              sendCommand: (...args) => this.redisClient.sendCommand(args),
+            })
+          : undefined,
+      })
+    );
 
     // Bulk operations rate limiter
-    this.limiters.set('bulk', rateLimit({
-      windowMs: 60 * 60 * 1000, // 1 hour
-      max: (req) => {
-        const user = req.user;
-        if (!user) return 1; // Anonymous users limited to 1 bulk operation per hour
-        
-        switch (user.role) {
-          case 'admin':
-            return 100;
-          case 'moderator':
-            return 50;
-          case 'analyst':
-            return 20;
-          case 'viewer':
-            return 5;
-          default:
-            return 10;
-        }
-      },
-      keyGenerator: (req) => {
-        return req.user ? `user:${req.user.id}:bulk` : `ip:${req.ip}:bulk`;
-      },
-      message: {
-        error: 'Bulk operation rate limit exceeded',
-        retryAfter: '1 hour'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
-    });
+    this.limiters.set(
+      'bulk',
+      rateLimit({
+        windowMs: 60 * 60 * 1000, // 1 hour
+        max: (req) => {
+          const user = req.user;
+          if (!user) return 1; // Anonymous users limited to 1 bulk operation per hour
+
+          switch (user.role) {
+            case 'admin':
+              return 100;
+            case 'moderator':
+              return 50;
+            case 'analyst':
+              return 20;
+            case 'viewer':
+              return 5;
+            default:
+              return 10;
+          }
+        },
+        keyGenerator: (req) => {
+          return req.user ? `user:${req.user.id}:bulk` : `ip:${req.ip}:bulk`;
+        },
+        message: {
+          error: 'Bulk operation rate limit exceeded',
+          retryAfter: '1 hour',
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: this.redisClient
+          ? new RedisStore({
+              sendCommand: (...args) => this.redisClient.sendCommand(args),
+            })
+          : undefined,
+      })
+    );
 
     // Search rate limiter
-    this.limiters.set('search', rateLimit({
-      windowMs: 5 * 60 * 1000, // 5 minutes
-      max: (req) => {
-        const user = req.user;
-        if (!user) return 10; // Anonymous users limited to 10 searches per 5 minutes
-        
-        switch (user.role) {
-          case 'admin':
-            return 1000;
-          case 'moderator':
-            return 500;
-          case 'analyst':
-            return 200;
-          case 'viewer':
-            return 100;
-          default:
-            return 50;
-        }
-      },
-      keyGenerator: (req) => {
-        return req.user ? `user:${req.user.id}:search` : `ip:${req.ip}:search`;
-      },
-      message: {
-        error: 'Search rate limit exceeded',
-        retryAfter: '5 minutes'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
-    });
+    this.limiters.set(
+      'search',
+      rateLimit({
+        windowMs: 5 * 60 * 1000, // 5 minutes
+        max: (req) => {
+          const user = req.user;
+          if (!user) return 10; // Anonymous users limited to 10 searches per 5 minutes
+
+          switch (user.role) {
+            case 'admin':
+              return 1000;
+            case 'moderator':
+              return 500;
+            case 'analyst':
+              return 200;
+            case 'viewer':
+              return 100;
+            default:
+              return 50;
+          }
+        },
+        keyGenerator: (req) => {
+          return req.user ? `user:${req.user.id}:search` : `ip:${req.ip}:search`;
+        },
+        message: {
+          error: 'Search rate limit exceeded',
+          retryAfter: '5 minutes',
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: this.redisClient
+          ? new RedisStore({
+              sendCommand: (...args) => this.redisClient.sendCommand(args),
+            })
+          : undefined,
+      })
+    );
 
     // WebSocket connection rate limiter
-    this.limiters.set('websocket', rateLimit({
-      windowMs: 60 * 1000, // 1 minute
-      max: (req) => {
-        const user = req.user;
-        if (!user) return 3; // Anonymous users limited to 3 connections per minute
-        
-        switch (user.role) {
-          case 'admin':
-            return 100;
-          case 'moderator':
-            return 50;
-          case 'analyst':
-            return 20;
-          case 'viewer':
-            return 10;
-          default:
-            return 15;
-        }
-      },
-      keyGenerator: (req) => {
-        return req.user ? `user:${req.user.id}:ws` : `ip:${req.ip}:ws`;
-      },
-      message: {
-        error: 'WebSocket connection rate limit exceeded',
-        retryAfter: '1 minute'
-      },
-      standardHeaders: true,
-      legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
-    });
+    this.limiters.set(
+      'websocket',
+      rateLimit({
+        windowMs: 60 * 1000, // 1 minute
+        max: (req) => {
+          const user = req.user;
+          if (!user) return 3; // Anonymous users limited to 3 connections per minute
+
+          switch (user.role) {
+            case 'admin':
+              return 100;
+            case 'moderator':
+              return 50;
+            case 'analyst':
+              return 20;
+            case 'viewer':
+              return 10;
+            default:
+              return 15;
+          }
+        },
+        keyGenerator: (req) => {
+          return req.user ? `user:${req.user.id}:ws` : `ip:${req.ip}:ws`;
+        },
+        message: {
+          error: 'WebSocket connection rate limit exceeded',
+          retryAfter: '1 minute',
+        },
+        standardHeaders: true,
+        legacyHeaders: false,
+        store: this.redisClient
+          ? new RedisStore({
+              sendCommand: (...args) => this.redisClient.sendCommand(args),
+            })
+          : undefined,
+      })
+    );
   }
 
   // Get limiter by name
@@ -227,13 +254,15 @@ class RateLimiterService {
       max: 100,
       message: {
         error: 'Rate limit exceeded',
-        retryAfter: '15 minutes'
+        retryAfter: '15 minutes',
       },
       standardHeaders: true,
       legacyHeaders: false,
-      store: this.redisClient ? new RedisStore({
-        sendCommand: (...args) => this.redisClient.sendCommand(args)
-      }) : undefined
+      store: this.redisClient
+        ? new RedisStore({
+            sendCommand: (...args) => this.redisClient.sendCommand(args),
+          })
+        : undefined,
     };
 
     return rateLimit({ ...defaultOptions, ...options });
@@ -248,7 +277,7 @@ class RateLimiterService {
     const stats = {
       status: 'active',
       limiters: Array.from(this.limiters.keys()),
-      redis: this.redisClient ? 'connected' : 'not_connected'
+      redis: this.redisClient ? 'connected' : 'not_connected',
     };
 
     // Get Redis stats if available
@@ -311,7 +340,7 @@ class RateLimiterService {
     return (req, res, next) => {
       // Add rate limit info to response headers
       res.set('X-RateLimit-Info', 'Rate limiting enabled');
-      
+
       // Add user role info if available
       if (req.user) {
         res.set('X-User-Role', req.user.role);
@@ -331,7 +360,11 @@ class RateLimiterService {
 
       const user = req.user;
       const currentTime = new Date();
-      const startOfDay = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate());
+      const startOfDay = new Date(
+        currentTime.getFullYear(),
+        currentTime.getMonth(),
+        currentTime.getDate()
+      );
 
       // Check daily budget based on user role
       let dailyBudget;
